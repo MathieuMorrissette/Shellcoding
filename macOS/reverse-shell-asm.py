@@ -67,15 +67,31 @@ def main():
 
     nanosleepvalue = "0x1" # 1 seconds
 
+    hello = "0x" + "48656c6c6f5c6e" # Hello\n
+
     assembly = (
+
+            #"INT3;"
+           "mov rcx, "+ hello + ";" # HEllO
+           "push 0;" # we need to push a null byte on the stack  because string are null terminated
+           "push rcx;" # then push the string on the stack
+           "push rsp;"  # rsp points to the top of the stack, which is occupied by /bin/sh
+           "pop rsi;"  
+
+           "mov rax, 0x2000004;"   #SYS_write
+           "mov rdi, 1;"           # stdout
+           "mov rdx, 7;" # lenght
+           "syscall;"
+            
             "fork:"
             "mov rax, 0x2000002;" # fork
             "syscall;"
-            "orl	rdx,rdx;"	# CF=OF=0,  ZF set if zero result	
-            "jz	parent;		"# parent, since r1 == 0 in parent, 1 in child
+            "cmp	rdx,0;"	# rdx is used on osx not rax
+            "je	parent;		"# parent ==0 in parent, 1 in child
             # https://opensource.apple.com/source/xnu/xnu-2050.48.11/libsyscall/custom/__fork.s
             #https://lists.apple.com/archives/darwin-kernel/2008/Apr/msg00124.html
             #"INT3;"
+
             "setsid:"
             "mov rax, 0x2000093;" # setsid
             "syscall;"
@@ -124,6 +140,7 @@ def main():
            # http://uninformed.org/index.cgi?v=1&a=1&p=16 must call fork for it to work
 
             "parent:"
+            # https://github.com/st3fan/osx-10.9/blob/master/Libc-997.1.1/gen/nanosleep.c
             # no sleep system call currently ( migth get terminated by the os )
             #"mov rcx, "+ nanosleepvalue + ";"
             #"push rcx;"
@@ -132,7 +149,30 @@ def main():
             #"mov rsi, 0;" # no nanoseconds so NULL rip null byte should negate this shit
             #"mov rax, 35;" # nanosleep
             #"syscall;"
-            # TODO add sleep to prevent parent from getting killed
+            
+            
+            # show message since mac has no sleep syscall
+            #"INT3;"
+            "setupshowmessage:"
+            "mov r8, 0;"
+
+            "showmessage:"
+            "inc r8;" # use 100% cpu cuz mac osx trolling
+            "cmp r8, 999000000;"
+            "jne showmessage;"
+            "mov rcx, 0x42;" # B\n  -> 0D is carriage return in hex
+            "push 0;" # we need to push a null byte on the stack  because string are null terminated
+            "push rcx;" # then push the string on the stack
+            "push rsp;"  # rsp points to the top of the stack, which is occupied by /bin/sh
+            "pop rsi;"  
+
+            "mov rax, 0x2000004;"   #SYS_write
+            "mov rdi, 1;"           # stdout
+            "mov rdx, 2;" # lenght string + null byte
+            "syscall;"
+
+            # ddidnt figure out how to flush stdout so x)
+
             "jmp parent;"
 
     )

@@ -6,7 +6,6 @@
 #include <arpa/inet.h>
 #include <time.h>   /* Needed for struct timespec */
 
-
 void forkexample(int argc, char *argv[])
 {
         // child process because return value zero
@@ -68,18 +67,26 @@ void forkexample(int argc, char *argv[])
         // parent process because return value non-zero.
         else
         {
-          struct timespec tim;
-          tim.tv_sec = 1; // 1 second and
-          tim.tv_nsec = 0; // 0 nanoseconds
+
 
                 // emulate running programm
                 while(1)
                 {
                         //sleep(1); // sleep is unavailable in system calls so using nanosleep instead
-                        printf("%p is nanosleep struct value", tim);
-                        printf("%p is nanosleep struct address", &tim);
+
+
+                        printf("creating timespec struct");
+                        struct timespec tim;
+                        tim.tv_sec = 1; // 1 second and
+                        tim.tv_nsec = 0; // 0 nanoseconds
+
+                        //printf("%p is nanosleep struct value", tim);
+                        //printf("%p is nanosleep struct address", &tim);
+
+                        printf("sleeping now..");
                         nanosleep(&tim, NULL);
-                        printf("bob lol\n");
+                        
+                        printf("i slept lol\n");
                 }
 
                 printf("Hello from Parent!\n");
